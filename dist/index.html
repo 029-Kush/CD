@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A phase-aware Mini-C compiler with friendly diagnostics and a local machine-learning fallback.">
+  <title>Clarity Compiler · Review 2 Prototype</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#workspace" aria-label="Clarity Compiler home"><span class="brand-mark">C:</span><span>Clarity Compiler</span></a>
+    <div class="project-meta"><span>BCSE307P</span><span class="status-dot"></span><span>Review 2 prototype</span></div>
+    <button class="quiet-button" id="resetButton">Reset demo</button>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="kicker">Compiler construction × human-centred diagnostics</p>
+        <h1>The compiler knows <em>why</em>.<br>Now it can explain.</h1>
+        <p class="hero-copy">A working Mini-C front end that captures errors inside the lexer, parser, and semantic analyzer—then turns that context into a precise, actionable message.</p>
+      </div>
+      <div class="hero-proof" aria-label="Prototype facts">
+        <div><strong>3</strong><span>compiler phases</span></div>
+        <div><strong>13</strong><span>diagnostic rules</span></div>
+        <div><strong>1</strong><span>local ML fallback</span></div>
+      </div>
+    </section>
+
+    <section class="phase-strip" id="phaseStrip" aria-label="Compiler pipeline"></section>
+
+    <section class="workspace" id="workspace">
+      <aside class="examples-panel">
+        <div class="section-heading"><span>Demo scripts</span><small>Choose a case</small></div>
+        <div id="exampleList" class="example-list"></div>
+        <div class="review-note">
+          <span class="note-index">R2</span>
+          <div><strong>What is real today?</strong><p>Lexer, recursive-descent parser, AST, scoped symbol table, type checking, rule diagnostics, and an offline Naive Bayes comparison.</p></div>
+        </div>
+      </aside>
+
+      <section class="editor-panel">
+        <div class="panel-top">
+          <div><span class="file-dot"></span><strong>review_demo.mc</strong><small id="sourceMeta"></small></div>
+          <button class="compile-button" id="compileButton"><span>Run compiler</span><kbd>Ctrl ↵</kbd></button>
+        </div>
+        <div class="editor-shell">
+          <pre class="line-numbers" id="lineNumbers" aria-hidden="true"></pre>
+          <textarea id="editor" aria-label="Mini-C source editor" spellcheck="false"></textarea>
+        </div>
+        <div class="statusbar"><span id="statusText"></span><span>Mini-C · UTF-8 · Recursive descent</span></div>
+      </section>
+
+      <section class="result-panel">
+        <nav class="tabs" aria-label="Compiler outputs">
+          <button class="tab active" data-tab="diagnostics">Diagnosis</button>
+          <button class="tab" data-tab="tokens">Tokens</button>
+          <button class="tab" data-tab="ast">AST</button>
+          <button class="tab" data-tab="symbols">Symbols</button>
+        </nav>
+        <div class="output" id="output" aria-live="polite"></div>
+      </section>
+    </section>
+
+    <section class="architecture">
+      <div class="architecture-copy">
+        <p class="kicker">What changed since Review 1</p>
+        <h2>From an idea to an instrumented compiler.</h2>
+        <p>The diagnostic layer is not guessing from a printed sentence. It receives the offending token, exact source span, parser expectation, and symbol-table facts directly from the phase that raised the error.</p>
+      </div>
+      <div class="flow" aria-label="Architecture flow">
+        <div><span>01</span><strong>Source</strong><small>Mini-C program</small></div><b>→</b>
+        <div><span>02</span><strong>Front end</strong><small>Tokens · AST · symbols</small></div><b>→</b>
+        <div class="accent"><span>03</span><strong>Error context</strong><small>Phase-aware record</small></div><b>→</b>
+        <div><span>04</span><strong>Diagnosis</strong><small>Rules first · ML fallback</small></div>
+      </div>
+    </section>
+  </main>
+
+  <footer><span>Kush Gupta · Arnav Tiwari · D. Raghul</span><span>Under the guidance of Nithya K.</span><span>VIT Vellore · 2026</span></footer>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
