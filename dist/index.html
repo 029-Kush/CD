@@ -3,82 +3,45 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A phase-aware Mini-C compiler with friendly diagnostics and a local machine-learning fallback.">
-  <title>Clarity Compiler · Review 2 Prototype</title>
+  <meta name="description" content="A professional visual-to-code compiler for building programs with drag-and-drop blocks.">
+  <title>Clarity Blocks · Visual-to-Code Compiler</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#workspace" aria-label="Clarity Compiler home"><span class="brand-mark">C:</span><span>Clarity Compiler</span></a>
-    <div class="project-meta"><span>BCSE307P</span><span class="status-dot"></span><span>Review 2 prototype</span></div>
-    <button class="quiet-button" id="resetButton">Reset demo</button>
+    <a class="brand" href="#workspace"><span class="brand-symbol">C</span><span><strong>Clarity</strong><small>visual compiler</small></span></a>
+    <div class="project-title"><span class="live-dot"></span><span>review_demo.blocks</span><small>saved locally</small></div>
+    <div class="top-actions"><button class="text-button" id="clearButton">Clear canvas</button><button class="text-button" id="resetButton">Load demo</button><button class="primary-button" id="compileButton">Compile blocks <span>→</span></button></div>
   </header>
-
-  <main>
-    <section class="hero">
-      <div>
-        <p class="kicker">Compiler construction × human-centred diagnostics</p>
-        <h1>The compiler knows <em>why</em>.<br>Now it can explain.</h1>
-        <p class="hero-copy">A working Mini-C front end that captures errors inside the lexer, parser, and semantic analyzer—then turns that context into a precise, actionable message.</p>
-      </div>
-      <div class="hero-proof" aria-label="Prototype facts">
-        <div><strong>3</strong><span>compiler phases</span></div>
-        <div><strong>13</strong><span>diagnostic rules</span></div>
-        <div><strong>1</strong><span>local ML fallback</span></div>
-      </div>
+  <section class="intro">
+    <div><span class="eyebrow">Visual programming for real development</span><h1>Think in structure.<br><em>Ship real code.</em></h1></div>
+    <p>Build programs by snapping logic into place. Clarity validates the block graph, preserves nested control flow, and compiles it into the language your project needs.</p>
+    <div class="language-row"><span>Targets</span><b>Python</b><b>JavaScript</b><b>Java</b><b>C</b><b>C++</b></div>
+  </section>
+  <main class="workbench" id="workspace">
+    <aside class="toolbox panel">
+      <div class="panel-heading"><div><span>01</span><strong>Block library</strong></div><small>Drag or click to add</small></div>
+      <div class="palette" id="palette"></div>
+      <div class="toolbox-note"><strong>Developer-first blocks</strong><p>Variables, functions, expressions, and nested control flow—not a toy animation system.</p></div>
+    </aside>
+    <section class="canvas-panel panel">
+      <div class="panel-heading canvas-heading"><div><span>02</span><strong>Program structure</strong></div><div class="canvas-meta"><span id="blockCount">0 blocks</span><span id="compileState" data-state="ready">Ready to run</span></div></div>
+      <div class="canvas-grid" id="canvas" aria-label="Visual program canvas"></div>
+      <div class="canvas-footer"><span>Tip: drag blocks into the openings inside loops, functions, and conditions.</span><span>Visual AST · live validation</span></div>
     </section>
-
-    <section class="phase-strip" id="phaseStrip" aria-label="Compiler pipeline"></section>
-
-    <section class="workspace" id="workspace">
-      <aside class="examples-panel">
-        <div class="section-heading"><span>Demo scripts</span><small>Choose a case</small></div>
-        <div id="exampleList" class="example-list"></div>
-        <div class="review-note">
-          <span class="note-index">R2</span>
-          <div><strong>What is real today?</strong><p>Lexer, recursive-descent parser, AST, scoped symbol table, type checking, rule diagnostics, and an offline Naive Bayes comparison.</p></div>
-        </div>
-      </aside>
-
-      <section class="editor-panel">
-        <div class="panel-top">
-          <div><span class="file-dot"></span><strong>review_demo.mc</strong><small id="sourceMeta"></small></div>
-          <button class="compile-button" id="compileButton"><span>Run compiler</span><kbd>Ctrl ↵</kbd></button>
-        </div>
-        <div class="editor-shell">
-          <pre class="line-numbers" id="lineNumbers" aria-hidden="true"></pre>
-          <textarea id="editor" aria-label="Mini-C source editor" spellcheck="false"></textarea>
-        </div>
-        <div class="statusbar"><span id="statusText"></span><span>Mini-C · UTF-8 · Recursive descent</span></div>
-      </section>
-
-      <section class="result-panel">
-        <nav class="tabs" aria-label="Compiler outputs">
-          <button class="tab active" data-tab="diagnostics">Diagnosis</button>
-          <button class="tab" data-tab="tokens">Tokens</button>
-          <button class="tab" data-tab="ast">AST</button>
-          <button class="tab" data-tab="symbols">Symbols</button>
-        </nav>
-        <div class="output" id="output" aria-live="polite"></div>
-      </section>
-    </section>
-
-    <section class="architecture">
-      <div class="architecture-copy">
-        <p class="kicker">What changed since Review 1</p>
-        <h2>From an idea to an instrumented compiler.</h2>
-        <p>The diagnostic layer is not guessing from a printed sentence. It receives the offending token, exact source span, parser expectation, and symbol-table facts directly from the phase that raised the error.</p>
-      </div>
-      <div class="flow" aria-label="Architecture flow">
-        <div><span>01</span><strong>Source</strong><small>Mini-C program</small></div><b>→</b>
-        <div><span>02</span><strong>Front end</strong><small>Tokens · AST · symbols</small></div><b>→</b>
-        <div class="accent"><span>03</span><strong>Error context</strong><small>Phase-aware record</small></div><b>→</b>
-        <div><span>04</span><strong>Diagnosis</strong><small>Rules first · ML fallback</small></div>
-      </div>
-    </section>
+    <aside class="output-panel panel" id="codePanel">
+      <div class="panel-heading output-heading"><div><span>03</span><strong>Generated code</strong></div><select id="languageSelect" aria-label="Target language"><option value="python">Python</option><option value="javascript">JavaScript</option><option value="java">Java</option><option value="c">C</option><option value="cpp">C++</option></select></div>
+      <div class="code-toolbar"><span><i></i><span id="codeLanguage">Python</span> output</span><button id="copyButton">Copy code</button></div>
+      <pre class="code-output"><code id="codeOutput"></code></pre>
+      <div class="diagnostic-heading"><span>Compiler checks</span><small>Actionable feedback from block context</small></div>
+      <div class="diagnostics" id="diagnostics"></div>
+    </aside>
   </main>
-
-  <footer><span>Kush Gupta · Arnav Tiwari · D. Raghul</span><span>Under the guidance of Nithya K.</span><span>VIT Vellore · 2026</span></footer>
+  <section class="pipeline">
+    <div><span class="eyebrow">What the prototype proves</span><h2>Blocks are the source language—not a cosmetic layer.</h2></div>
+    <div class="pipeline-flow"><div><b>1</b><strong>Block graph</strong><small>Nested visual program</small></div><i>→</i><div><b>2</b><strong>Validation</strong><small>Scope &amp; structure checks</small></div><i>→</i><div><b>3</b><strong>Code generator</strong><small>Language-specific rules</small></div><i>→</i><div class="accent"><b>4</b><strong>Real source code</strong><small>Python · JS · Java · C · C++</small></div></div>
+  </section>
+  <footer><span>Clarity Compiler · Review 2</span><span>Kush Gupta · Arnav Tiwari · D. Raghul</span><span>VIT Vellore · 2026</span></footer>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

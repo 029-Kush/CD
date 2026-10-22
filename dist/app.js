@@ -1,193 +1,279 @@
-import { compileSource, mlDiagnose } from "./compiler.js";
+import {
+  addBlock, createBlock, createStarterProgram, findBlock,
+  generateCode, removeBlock, validateProgram
+} from "./visual-compiler.js";
 
-const EXAMPLES = [
-  {
-    id: "valid",
-    label: "Valid · Odd / even",
-    note: "A complete program that passes every compiler phase.",
-    code: `int number = 7;
-bool isEven = number % 2 == 0;
-
-if (isEven) {
-  print("Even");
-} else {
-  print("Odd");
-}`
-  },
-  {
-    id: "syntax",
-    label: "Syntax · Missing ;",
-    note: "The parser knows which terminal was expected and where.",
-    code: `int age = 18
-print(age);`
-  },
-  {
-    id: "semantic",
-    label: "Semantic · Undeclared",
-    note: "The symbol table exposes the exact missing name.",
-    code: `int total = 10;
-print(totl);`
-  },
-  {
-    id: "types",
-    label: "Semantic · Type mismatch",
-    note: "The declaration line and actual value type become diagnostic context.",
-    code: `int attempts = 3;
-attempts = "three";
-print(attempts);`
-  },
-  {
-    id: "lexical",
-    label: "Lexical · Bad real",
-    note: "The lexer rejects a malformed numeric token before parsing.",
-    code: `float interest = 12.4.8;
-print(interest);`
-  },
-  {
-    id: "vowel",
-    label: "Valid · Vowel",
-    note: "A second complete example for the Review 2 demonstration.",
-    code: `char letter = 'e';
-bool vowel = letter == 'a' || letter == 'e';
-
-if (vowel) {
-  print("Vowel");
-} else {
-  print("Consonant");
-}`
-  }
+const BLOCKS = [
+  { type: "declare", label: "variable", hint: "Create typed data", family: "data" },
+  { type: "set", label: "set value", hint: "Change a variable", family: "data" },
+  { type: "print", label: "output", hint: "Show a value", family: "action" },
+  { type: "if", label: "if / else", hint: "Branch by condition", family: "control" },
+  { type: "repeat", label: "repeat", hint: "Run a fixed number", family: "control" },
+  { type: "while", label: "while", hint: "Loop by condition", family: "control" },
+  { type: "function", label: "function", hint: "Define reusable logic", family: "function" },
+  { type: "call", label: "call function", hint: "Run a function", family: "function" },
+  { type: "comment", label: "comment", hint: "Document intent", family: "note" }
 ];
 
-const editor = document.querySelector("#editor");
-const lineNumbers = document.querySelector("#lineNumbers");
-const output = document.querySelector("#output");
-const exampleList = document.querySelector("#exampleList");
-const statusText = document.querySelector("#statusText");
-const phaseStrip = document.querySelector("#phaseStrip");
-const sourceMeta = document.querySelector("#sourceMeta");
-let lastResult = null;
+const LANGUAGE_LABELS = { python: "Python", javascript: "JavaScript", java: "Java", c: "C", cpp: "C++" };
+let program = createStarterProgram();
+let language = "python";
+let dragged = null;
+let selectedId = null;
+let syncReady = false, syncBusy = false, syncConflict = false, syncRevision = 0;
+let savedSnapshot = "", saveTimer;
+const syncLabel = document.querySelector(".project-title small");
+const snapshot = () => JSON.stringify({program, language});
+function queueSave() {
+  if (!syncReady || syncConflict || snapshot() === savedSnapshot) return;
+  syncLabel.textContent = "Saving…";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveProject, 350);
+}
+async function saveProject() {
+  if (syncBusy || syncConflict || !syncReady || snapshot() === savedSnapshot) return;
+  syncBusy = true;
+  const pending = snapshot();
+  try {
+    const response = await fetch("/api/project", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({...JSON.parse(pending), expectedRevision:syncRevision})});
+    if (response.status === 409) {
+      syncConflict = true;
+      syncLabel.textContent = "Conflict · export your draft, then reload";
+      const download = document.createElement("button");
+      download.className = "text-button";
+      download.textContent = "Export unsaved draft";
+      download.onclick = () => {
+        const url = URL.createObjectURL(new Blob([snapshot()], {type:"application/json"}));
+        const link = document.createElement("a"); link.href=url; link.download="clarity-unsaved.json"; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+      document.querySelector(".top-actions").prepend(download);
+      return;
+    }
+    if (!response.ok) throw new Error("Save failed");
+    const state = await response.json();
+    syncRevision = state.revision; savedSnapshot = pending;
+    syncLabel.textContent = "Saved · MCP connected";
+  } catch { syncLabel.textContent = "Offline · edits unsaved"; }
+  finally { syncBusy = false; }
+  if (!syncConflict && snapshot() !== savedSnapshot) saveTimer = setTimeout(saveProject, 1500);
+}
+async function syncProject() {
+  if (syncBusy || syncConflict) return;
+  if (syncReady && snapshot() !== savedSnapshot) { queueSave(); return; }
+  syncBusy = true;
+  try {
+    const response = await fetch("/api/project", {cache:"no-store"});
+    if (!response.ok) throw new Error("Project API unavailable");
+    const state = await response.json();
+    // A user may have typed while the request was in flight.
+    if (syncReady && snapshot() !== savedSnapshot) return;
+    if (!syncReady || state.revision !== syncRevision) {
+      program = state.program; language = state.language; syncRevision = state.revision;
+      savedSnapshot = snapshot(); languageSelect.value = language; render();
+    }
+    syncReady = true;
+    canvas.inert = false; palette.inert = false;
+    document.querySelector(".top-actions").inert = false;
+    languageSelect.disabled = false;
+    syncLabel.textContent = "Saved · MCP connected";
+  } catch { syncLabel.textContent = "Local API unavailable"; }
+  finally { syncBusy = false; }
+}
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+function settle(element, distance = 6) {
+  if (!element || reducedMotion.matches) return;
+  element.getAnimations().forEach(animation => animation.cancel());
+  element.animate(
+    [{ opacity: 0.6, transform: `translateY(${distance}px)` }, { opacity: 1, transform: "translateY(0)" }],
+    { duration: 240, easing: "cubic-bezier(.2,.8,.2,1)" }
+  );
+}
+
+const palette = document.querySelector("#palette");
+const canvas = document.querySelector("#canvas");
+const codeOutput = document.querySelector("#codeOutput");
+const diagnostics = document.querySelector("#diagnostics");
+const blockCount = document.querySelector("#blockCount");
+const compileState = document.querySelector("#compileState");
+const languageSelect = document.querySelector("#languageSelect");
 
 function escapeHtml(value) {
-  return String(value).replace(/[&<>'"]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
+  return String(value).replace(/[&<>\"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
 }
 
-function updateLines() {
-  const count = editor.value.split("\n").length;
-  lineNumbers.textContent = Array.from({ length: count }, (_, index) => index + 1).join("\n");
-  sourceMeta.textContent = `${count} lines · ${editor.value.length} characters`;
+function countBlocks(list) {
+  return list.reduce((count, block) => count + 1 + ["body", "then", "else"].reduce((sum, key) => sum + (Array.isArray(block[key]) ? countBlocks(block[key]) : 0), 0), 0);
 }
 
-function renderExamples() {
-  exampleList.innerHTML = EXAMPLES.map((example, index) => `
-    <button class="example ${index === 0 ? "active" : ""}" data-example="${example.id}">
-      <span>${example.label}</span><small>${example.note}</small>
-    </button>`).join("");
-  exampleList.addEventListener("click", event => {
-    const button = event.target.closest("[data-example]");
-    if (!button) return;
-    document.querySelectorAll(".example").forEach(item => item.classList.toggle("active", item === button));
-    const example = EXAMPLES.find(item => item.id === button.dataset.example);
-    editor.value = example.code; updateLines(); runCompiler();
+function input(block, field, value, label, wide = false) {
+  return `<label class="block-field ${wide ? "wide" : ""}"><span class="sr-only">${label}</span><input data-id="${block.id}" data-field="${field}" value="${escapeHtml(value)}" aria-label="${label}"></label>`;
+}
+
+function selectType(block) {
+  const options = ["number", "text", "boolean"].map(type => `<option value="${type}" ${block.valueType === type ? "selected" : ""}>${type}</option>`).join("");
+  return `<select data-id="${block.id}" data-field="valueType" aria-label="Variable type">${options}</select>`;
+}
+
+function branch(path, label, blocks, emptyText) {
+  return `<div class="branch-label">${label}</div><div class="dropzone" data-path="${path}">${blocks.length ? renderList(blocks, path) : `<div class="empty-drop">${emptyText}</div>`}</div>`;
+}
+
+function renderBlock(block, parentPath) {
+  const selected = block.id === selectedId ? " selected" : "";
+  let sentence = "";
+  let nested = "";
+  if (block.type === "declare") sentence = `<span>variable</span>${input(block, "name", block.name, "Variable name")}<span>as</span>${selectType(block)}<span>=</span>${input(block, "value", block.value, "Initial value", true)}`;
+  if (block.type === "set") sentence = `<span>set</span>${input(block, "name", block.name, "Variable name")}<span>to</span>${input(block, "value", block.value, "Assigned value", true)}`;
+  if (block.type === "print") sentence = `<span>output</span>${input(block, "value", block.value, "Output expression", true)}`;
+  if (block.type === "comment") sentence = `<span>note</span>${input(block, "text", block.text, "Comment", true)}`;
+  if (block.type === "call") sentence = `<span>call</span>${input(block, "name", block.name, "Function name")}<span>with</span>${input(block, "args", block.args, "Arguments", true)}`;
+  if (block.type === "repeat") {
+    sentence = `<span>repeat</span>${input(block, "times", block.times, "Repeat count")}<span>times</span>`;
+    nested = branch(`${parentPath === "root" ? "" : `${parentPath}/`}${block.id}/body`, "do", block.body, "Drop blocks inside this loop");
+  }
+  if (block.type === "while") {
+    sentence = `<span>while</span>${input(block, "condition", block.condition, "Loop condition", true)}`;
+    nested = branch(`${parentPath === "root" ? "" : `${parentPath}/`}${block.id}/body`, "do", block.body, "Drop blocks inside this loop");
+  }
+  if (block.type === "if") {
+    const base = `${parentPath === "root" ? "" : `${parentPath}/`}${block.id}`;
+    sentence = `<span>if</span>${input(block, "condition", block.condition, "Condition", true)}`;
+    nested = `${branch(`${base}/then`, "then", block.then, "Drop blocks for true")}${branch(`${base}/else`, "else", block.else, "Drop blocks for false")}`;
+  }
+  if (block.type === "function") {
+    sentence = `<span>function</span>${input(block, "name", block.name, "Function name")}<span>params</span>${input(block, "params", block.params, "Parameters", true)}`;
+    nested = branch(`${parentPath === "root" ? "" : `${parentPath}/`}${block.id}/body`, "body", block.body, "Drop function blocks here");
+  }
+  return `<article class="program-block ${block.type}${selected}" data-block-id="${block.id}" draggable="true"><div class="block-row"><span class="grip" title="Drag to move">⠿</span><div class="block-sentence">${sentence}</div><button class="delete-block" data-delete="${block.id}" aria-label="Delete block">×</button></div>${nested}</article>`;
+}
+
+function renderList(list, path) { return list.map(block => renderBlock(block, path)).join(""); }
+
+function renderPalette() {
+  palette.innerHTML = BLOCKS.map(block => `<button class="palette-block ${block.family}" draggable="true" data-new-type="${block.type}"><span>${block.label}</span><small>${block.hint}</small><b>＋</b></button>`).join("");
+}
+
+function issuesMarkup(issues) {
+  return issues.length ? issues.map(issue => `<button class="issue" data-focus="${issue.blockId}"><span>!</span><div><strong>${escapeHtml(issue.message)}</strong><small>${escapeHtml(issue.suggestion)}</small></div></button>`).join("") : `<div class="all-clear"><span>✓</span><div><strong>Block structure is valid</strong><small>Generated ${LANGUAGE_LABELS[language]} is ready to copy.</small></div></div>`;
+}
+
+function refreshOutputs() {
+  const issues = validateProgram(program);
+  codeOutput.textContent = generateCode(program, language);
+  document.querySelector("#codeLanguage").textContent = LANGUAGE_LABELS[language];
+  compileState.textContent = issues.length ? `${issues.length} issue${issues.length === 1 ? "" : "s"} to fix` : "Ready to run";
+  compileState.dataset.state = issues.length ? "warning" : "ready";
+  diagnostics.innerHTML = issuesMarkup(issues);
+  queueSave();
+}
+
+function render() {
+  canvas.innerHTML = `<div class="dropzone root-zone" data-path="root">${program.length ? renderList(program, "root") : `<div class="empty-canvas"><strong>Your canvas is empty</strong><span>Drag a block here or click one in the toolbox.</span></div>`}</div>`;
+  blockCount.textContent = `${countBlocks(program)} blocks`;
+  refreshOutputs();
+}
+
+function addNew(type, path = "root") {
+  const block = createBlock(type);
+  addBlock(program, path, block);
+  selectedId = block.id;
+  render();
+  requestAnimationFrame(() => document.querySelector(`[data-block-id="${block.id}"] input`)?.focus());
+  settle(document.querySelector(`[data-block-id="${block.id}"]`));
+}
+
+renderPalette();
+render();
+if (["localhost", "127.0.0.1"].includes(location.hostname)) {
+  // Load the saved project before enabling edits.
+  canvas.inert = true; palette.inert = true;
+  document.querySelector(".top-actions").inert = true;
+  languageSelect.disabled = true;
+  syncProject().finally(() => {
+    if (!syncReady) return;
+    canvas.inert = false; palette.inert = false;
+    document.querySelector(".top-actions").inert = false;
+    languageSelect.disabled = false;
+  });
+  setInterval(syncProject, 1500);
+  window.addEventListener("beforeunload", event => {
+    if (syncReady && snapshot() !== savedSnapshot) { event.preventDefault(); event.returnValue = ""; }
   });
 }
 
-function phaseLabel(value) {
-  return value === "passed" ? "Passed" : value === "failed" ? "Stopped here" : value === "complete" ? "Ready" : "Not reached";
-}
-
-function renderPhases(stages) {
-  const labels = { lexical: "Lexical", syntax: "Syntax", semantic: "Semantic", diagnosis: "Diagnosis" };
-  phaseStrip.innerHTML = Object.entries(labels).map(([key, label], index) => `
-    <div class="phase ${stages[key]}">
-      <span class="phase-index">0${index + 1}</span>
-      <span><strong>${label}</strong><small>${phaseLabel(stages[key])}</small></span>
-    </div>`).join("");
-}
-
-function sourceSpotlight(error) {
-  const line = editor.value.split("\n")[error.line - 1] || "";
-  const caret = `${" ".repeat(Math.max(0, error.column - 1))}${"^".repeat(Math.max(1, Math.min(error.length, 24)))}`;
-  return `<div class="source-spotlight"><span>line ${error.line}:${error.column}</span><code>${escapeHtml(line)}\n${escapeHtml(caret)}</code></div>`;
-}
-
-function diagnosticsView(result) {
-  if (!result.diagnostics.length) {
-    return `<section class="success-state">
-      <div class="success-mark">✓</div>
-      <p class="eyebrow">Compilation result</p>
-      <h2>Program accepted</h2>
-      <p>The lexer produced ${result.tokens.length - 1} tokens, the parser built an AST, and semantic analysis recorded ${result.symbols.length} symbol${result.symbols.length === 1 ? "" : "s"} with no errors.</p>
-      <div class="success-proof"><span>Lexical ✓</span><span>Syntax ✓</span><span>Semantic ✓</span></div>
-    </section>`;
+palette.addEventListener("click", event => { const button = event.target.closest("[data-new-type]"); if (button) addNew(button.dataset.newType); });
+document.addEventListener("dragstart", event => {
+  const fresh = event.target.closest("[data-new-type]");
+  const existing = event.target.closest("[data-block-id]");
+  if (fresh) dragged = { type: "new", blockType: fresh.dataset.newType };
+  else if (existing) { dragged = { type: "move", blockId: existing.dataset.blockId }; existing.classList.add("dragging"); }
+  if (dragged && event.dataTransfer) { event.dataTransfer.effectAllowed = dragged.type === "new" ? "copy" : "move"; event.dataTransfer.setData("text/plain", JSON.stringify(dragged)); }
+});
+document.addEventListener("dragend", () => { dragged = null; document.querySelectorAll(".dragging,.drag-over").forEach(element => element.classList.remove("dragging", "drag-over")); });
+canvas.addEventListener("dragover", event => {
+  const zone = event.target.closest(".dropzone");
+  if (!zone || !dragged) return;
+  event.preventDefault();
+  document.querySelectorAll(".drag-over").forEach(element => element.classList.remove("drag-over"));
+  zone.classList.add("drag-over");
+});
+canvas.addEventListener("drop", event => {
+  const zone = event.target.closest(".dropzone");
+  if (!zone || !dragged) return;
+  event.preventDefault();
+  if (dragged.type === "new") addNew(dragged.blockType, zone.dataset.path);
+  else {
+    const moving = findBlock(program, dragged.blockId);
+    if (!moving || zone.dataset.path.includes(moving.id)) return;
+    removeBlock(program, moving.id); addBlock(program, zone.dataset.path, moving); selectedId = moving.id; render();
   }
-  return result.diagnostics.map((error, index) => `
-    <article class="diagnostic-card">
-      <div class="diagnostic-head">
-        <span class="phase-badge ${error.phase}">${error.phase}</span>
-        <span class="error-code">${error.code}</span>
-      </div>
-      <p class="eyebrow">Friendly explanation</p>
-      <h2>${escapeHtml(error.friendly.title)}</h2>
-      <p>${escapeHtml(error.friendly.explanation)}</p>
-      <div class="suggestion"><strong>Try this</strong><span>${escapeHtml(error.friendly.suggestion)}</span></div>
-      ${sourceSpotlight(error)}
-      <details><summary>Raw compiler diagnostic</summary><p>${escapeHtml(error.message)}</p></details>
-      <div class="provenance"><span>Source: ${error.friendly.source}</span><button class="ml-button" data-ml="${index}">Compare ML fallback</button></div>
-      <div class="ml-result" id="ml-${index}" hidden></div>
-    </article>`).join("");
-}
-
-function tokenView(result) {
-  const visible = result.tokens.filter(token => token.type !== "EOF");
-  return `<div class="data-table"><div class="data-row header"><span>Token</span><span>Lexeme</span><span>Position</span></div>${visible.map(token => `<div class="data-row"><span>${token.type}</span><span><code>${escapeHtml(token.lexeme)}</code></span><span>${token.line}:${token.column}</span></div>`).join("") || "<p>No tokens produced.</p>"}</div>`;
-}
-
-function symbolView(result) {
-  if (!result.symbols.length) return `<div class="empty-panel">No symbols were recorded before compilation stopped.</div>`;
-  return `<div class="data-table"><div class="data-row header symbol"><span>Name</span><span>Type</span><span>Scope</span><span>Declared</span></div>${result.symbols.map(symbol => `<div class="data-row symbol"><span><code>${escapeHtml(symbol.name)}</code></span><span>${symbol.type}</span><span>${symbol.scope}</span><span>line ${symbol.line}</span></div>`).join("")}</div>`;
-}
-
-function astView(result) {
-  return result.ast ? `<pre class="json-view">${escapeHtml(JSON.stringify(result.ast, (key, value) => key === "loc" ? { line: value.line, column: value.column } : value, 2))}</pre>` : `<div class="empty-panel">The AST is unavailable because lexical analysis stopped first.</div>`;
-}
-
-function renderActiveTab() {
-  const active = document.querySelector(".tab.active")?.dataset.tab || "diagnostics";
-  output.innerHTML = active === "diagnostics" ? diagnosticsView(lastResult) : active === "tokens" ? tokenView(lastResult) : active === "ast" ? astView(lastResult) : symbolView(lastResult);
-}
-
-function runCompiler() {
-  lastResult = compileSource(editor.value);
-  renderPhases(lastResult.stages);
-  const failed = lastResult.diagnostics[0]?.phase;
-  statusText.textContent = failed ? `Stopped during ${failed} analysis` : "All compiler phases passed";
-  statusText.dataset.state = failed ? "error" : "success";
-  renderActiveTab();
-}
-
-document.querySelector("#compileButton").addEventListener("click", runCompiler);
-document.querySelector("#resetButton").addEventListener("click", () => { editor.value = EXAMPLES[0].code; updateLines(); runCompiler(); });
-editor.addEventListener("input", updateLines);
-editor.addEventListener("scroll", () => { lineNumbers.scrollTop = editor.scrollTop; });
-editor.addEventListener("keydown", event => {
-  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); runCompiler(); }
-  if (event.key === "Tab") { event.preventDefault(); const start = editor.selectionStart; editor.setRangeText("  ", start, editor.selectionEnd, "end"); updateLines(); }
 });
-document.querySelector(".tabs").addEventListener("click", event => {
-  const tab = event.target.closest(".tab"); if (!tab) return;
-  document.querySelectorAll(".tab").forEach(item => item.classList.toggle("active", item === tab)); renderActiveTab();
+// Select the existing text on entry so typing replaces the starter value.
+canvas.addEventListener("focusin", event => {
+  if (event.target.matches("input[data-field]")) event.target.select();
 });
-output.addEventListener("click", event => {
-  const button = event.target.closest("[data-ml]"); if (!button) return;
-  const index = Number(button.dataset.ml), error = lastResult.diagnostics[index];
-  const line = editor.value.split("\n")[error.line - 1] || "";
-  const result = mlDiagnose(error, line), target = document.querySelector(`#ml-${index}`);
-  target.hidden = false;
-  target.innerHTML = `<div><span class="model-label">Naive Bayes · ${(result.confidence * 100).toFixed(1)}% confidence</span><strong>${escapeHtml(result.title)}</strong><p>${escapeHtml(result.explanation)}</p><small>This is a real local classifier trained on a small labelled error corpus. It is advisory; the compiler remains authoritative.</small></div>`;
-  button.textContent = "ML comparison ready"; button.disabled = true;
+canvas.addEventListener("pointerdown", event => {
+  const input = event.target;
+  if (event.button === 0 && input.matches("input[data-field]") && document.activeElement !== input) {
+    event.preventDefault();
+    input.focus();
+    input.select();
+  }
 });
-
-renderExamples();
-editor.value = EXAMPLES[0].code;
-updateLines();
-runCompiler();
+canvas.addEventListener("input", event => {
+  const field = event.target.dataset.field;
+  const block = findBlock(program, event.target.dataset.id);
+  if (field && block) { block[field] = event.target.value; refreshOutputs(); }
+});
+canvas.addEventListener("change", event => {
+  const field = event.target.dataset.field;
+  const block = findBlock(program, event.target.dataset.id);
+  if (field && block) { block[field] = event.target.value; render(); }
+});
+canvas.addEventListener("click", event => {
+  const deletion = event.target.closest("[data-delete]");
+  if (deletion) { removeBlock(program, deletion.dataset.delete); selectedId = null; render(); return; }
+  const block = event.target.closest("[data-block-id]");
+  if (block) { selectedId = block.dataset.blockId; document.querySelectorAll(".program-block.selected").forEach(item => item.classList.remove("selected")); block.classList.add("selected"); }
+});
+languageSelect.addEventListener("change", () => { language = languageSelect.value; render(); settle(codeOutput.parentElement, 4); });
+document.querySelector("#resetButton").addEventListener("click", () => { program = createStarterProgram(); selectedId = null; render(); });
+document.querySelector("#clearButton").addEventListener("click", () => { program = []; selectedId = null; render(); });
+document.querySelector("#compileButton").addEventListener("click", () => {
+  render(); const panel = document.querySelector("#codePanel"); panel.classList.add("pulse"); setTimeout(() => panel.classList.remove("pulse"), 500);
+});
+document.querySelector("#copyButton").addEventListener("click", async event => {
+  const button = event.currentTarget;
+  const value = codeOutput.textContent;
+  try { await navigator.clipboard.writeText(value); }
+  catch { const area = document.createElement("textarea"); area.value = value; document.body.append(area); area.select(); document.execCommand("copy"); area.remove(); }
+  button.textContent = "Copied ✓";
+  settle(button, 2);
+  clearTimeout(button.copyTimer);
+  button.copyTimer = setTimeout(() => { button.textContent = "Copy code"; }, 1200);
+});
+diagnostics.addEventListener("click", event => {
+  const issue = event.target.closest("[data-focus]"); if (!issue) return;
+  selectedId = issue.dataset.focus; render(); document.querySelector(`[data-block-id="${selectedId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+});

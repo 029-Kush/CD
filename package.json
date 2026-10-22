@@ -1,10 +1,17 @@
 {
-  "name": "compiler-diagnostics-demo",
-  "version": "0.2.0",
+  "name": "clarity-visual-compiler",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/compiler.test.mjs",
-    "serve": "node server.mjs"
+    "test": "node --test tests/visual-compiler.test.mjs",
+    "test:c": "node --test tests/c-generation.test.mjs",
+    "serve": "node server.mjs",
+    "mcp": "node mcp-server.mjs",
+    "test:mcp": "node --test tests/mcp.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.7"
   }
 }

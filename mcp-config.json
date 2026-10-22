@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "clarity": {
+      "command": "node",
+      "args": ["C:/Users/Kush Gupta/Documents/codes/Projects/Compiler Design/compiler-diagnostics-demo/mcp-server.mjs"],
+      "env": {"CLARITY_URL": "http://127.0.0.1:4173"}
+    }
+  }
+}
